@@ -370,7 +370,7 @@ public class BitBucketWebhookService extends WebhookServiceBase {
         String apiUrl = webhookRemoteId;
         String ownerAndRepo = String.join("/", extractOwnerAndRepo(workspace.getSource()));
 
-        if (!webhookRemoteId.substring(0, 4).equals("http")) {
+        if (!webhookRemoteId.startsWith("http")) {
             apiUrl = workspace.getVcs().getApiUrl() + "/repositories/" + ownerAndRepo + "/hooks/" + webhookRemoteId;
         }
 

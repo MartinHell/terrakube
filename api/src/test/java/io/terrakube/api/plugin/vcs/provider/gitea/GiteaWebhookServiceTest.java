@@ -3,6 +3,8 @@ package io.terrakube.api.plugin.vcs.provider.gitea;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
+import static com.github.tomakehurst.wiremock.client.WireMock.delete;
+import static com.github.tomakehurst.wiremock.client.WireMock.deleteRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
@@ -41,6 +43,7 @@ import io.terrakube.api.rs.vcs.Vcs;
 import io.terrakube.api.rs.vcs.VcsType;
 import io.terrakube.api.rs.webhook.RepoWebhook;
 import io.terrakube.api.rs.webhook.WebhookEventType;
+import io.terrakube.api.rs.workspace.Workspace;
 
 // Payloads follow Gitea's own structs (modules/structs, services/convert):
 // pull_request.url is the PR's web page, issue.pull_request has only html_url,
@@ -352,5 +355,20 @@ class GiteaWebhookServiceTest {
 
         assertThat(subject.resolvePrDetails(vcs, "https://git.example.com/infra/network",
                 repoApiUrl + "/pulls/9", new WebhookResult())).isFalse();
+    }
+    // Gitea's hook IDs are small numbers ("34"); the legacy check for a stored
+    // full URL took substring(0, 4) and threw on anything shorter, which failed
+    // every migration of a Gitea workspace to the shared webhook.
+    @Test
+    void deletesAHookWithAShortId() {
+        gitea.stubFor(delete(urlPathEqualTo("/api/v1/repos/infra/network/hooks/34"))
+                .willReturn(aResponse().withStatus(204)));
+        Workspace workspace = new Workspace();
+        workspace.setSource("https://git.example.com/infra/network");
+        workspace.setVcs(vcs);
+
+        subject.deleteWebhook(workspace, "34");
+
+        assertThat(gitea.findAll(deleteRequestedFor(urlPathEqualTo("/api/v1/repos/infra/network/hooks/34")))).hasSize(1);
     }
 }
