@@ -11,7 +11,6 @@ import io.terrakube.api.plugin.vcs.RepoWebhookDispatchService;
 import io.terrakube.api.plugin.vcs.RepoWebhookService;
 import io.terrakube.api.plugin.vcs.WebhookService;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -36,15 +35,14 @@ public class WebHookController {
     @Autowired
     RepoWebhookDispatchService repoWebhookDispatchService;
 
-    @Autowired
-    ObjectMapper objectMapper;
-
+    // The body is taken as the raw string: the provider's HMAC signature covers the exact bytes
+    // it sent, and re-serializing a parsed Map only reproduces them for compact JSON (GitHub's
+    // style, not Gitea's indented payloads).
     @PostMapping("/webhook/v1/{webhookId}")
-    public ResponseEntity<String> processWebhook(@PathVariable String webhookId,@RequestBody Map<String, Object> payload,@RequestHeader Map<String, String> headers) {
+    public ResponseEntity<String> processWebhook(@PathVariable String webhookId,@RequestBody String jsonPayload,@RequestHeader Map<String, String> headers) {
 
         log.info("Processing webhook {}", webhookId);
         try {
-            String jsonPayload = objectMapper.writeValueAsString(payload);
             webhookService.processWebhook(webhookId, jsonPayload,headers);
         } catch (Exception e) {
             log.error("Error processing webhook", e);
@@ -54,14 +52,13 @@ public class WebHookController {
     }
 
     @PostMapping("/webhook/v2/{repoWebhookId}")
-    public ResponseEntity<String> processV2Webhook(@PathVariable String repoWebhookId, @RequestBody Map<String, Object> payload, @RequestHeader Map<String, String> headers) {
+    public ResponseEntity<String> processV2Webhook(@PathVariable String repoWebhookId, @RequestBody String jsonPayload, @RequestHeader Map<String, String> headers) {
         if (!UUID_PATTERN.matcher(repoWebhookId).matches()) {
             return ResponseEntity.status(401).build();
         }
         log.info("Processing v2 webhook");
         UUID deliveryId;
         try {
-            String jsonPayload = objectMapper.writeValueAsString(payload);
             deliveryId = repoWebhookService.acceptV2Webhook(repoWebhookId, jsonPayload, headers);
         } catch (IllegalArgumentException | SecurityException e) {
             log.warn("V2 webhook request rejected");
