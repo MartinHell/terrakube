@@ -1,6 +1,6 @@
 import { GitlabOutlined, GithubOutlined } from "@ant-design/icons";
 import { IconContext } from "react-icons";
-import { SiBitbucket, SiGit } from "react-icons/si";
+import { SiBitbucket, SiGit, SiGitea } from "react-icons/si";
 import { VscAzureDevops } from "react-icons/vsc";
 import { VcsType } from "@/domain/types";
 import "./VcsLogo.css";
@@ -32,6 +32,8 @@ export default function VcsLogo({ type, size = 18 }: Props) {
       );
     case VcsType.GITHUB:
       return <GithubOutlined className="vcs-logo-icon" style={sizeVar} />;
+    case VcsType.GITEA:
+      return <SiGitea size={size} />;
 
     default:
       return <SiGit size={size} />;

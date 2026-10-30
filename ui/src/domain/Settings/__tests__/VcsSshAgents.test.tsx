@@ -285,7 +285,7 @@ describe("Add VCS provider", () => {
   it("picks a provider from tiles, then its edition, then shows the setup form", async () => {
     renderAdd();
 
-    expect(screen.getAllByRole("radio")).toHaveLength(4 + 4);
+    expect(screen.getAllByRole("radio")).toHaveLength(5 + 4);
     fireEvent.click(screen.getByRole("radio", { name: "GitLab" }));
     fireEvent.click(screen.getByRole("radio", { name: /GitLab Community Edition/ }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -323,6 +323,32 @@ describe("Add VCS provider", () => {
       clientId: "970081",
       endpoint: "https://github.com",
       apiUrl: "https://api.github.com",
+    });
+  });
+
+  it("creates a Gitea provider from an access token, already connected", async () => {
+    renderAdd();
+    fireEvent.click(screen.getByRole("radio", { name: "Gitea" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    fireEvent.change(await screen.findByLabelText("Name"), { target: { value: "gitea" } });
+    expect(screen.queryByLabelText("App ID")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Access token")).toHaveAttribute("type", "password");
+    fireEvent.change(screen.getByLabelText("HTTPS URL"), { target: { value: "https://git.example.com" } });
+    fireEvent.change(screen.getByLabelText("API URL"), { target: { value: "https://git.example.com/api/v1" } });
+    fireEvent.change(screen.getByLabelText("Access token"), { target: { value: "tok" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add VCS provider" }));
+
+    await waitFor(() => expect(axiosInstance.post).toHaveBeenCalled());
+    const [, body] = (axiosInstance.post as jest.Mock).mock.calls[0];
+    expect(body.data.attributes).toMatchObject({
+      name: "gitea",
+      vcsType: "GITEA",
+      connectionType: "STANDALONE",
+      endpoint: "https://git.example.com",
+      apiUrl: "https://git.example.com/api/v1",
+      accessToken: "tok",
+      status: "COMPLETED",
     });
   });
 
