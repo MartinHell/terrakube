@@ -14,6 +14,7 @@ export const VCS_LABELS: Record<string, string> = {
   BITBUCKET_SERVER: "Bitbucket Server",
   AZURE_DEVOPS: "Azure DevOps",
   AZURE_DEVOPS_SERVER: "Azure DevOps Server",
+  GITEA: "Gitea",
 };
 
 export const vcsLabel = (vcs: VcsTypeExtended) => VCS_LABELS[vcs] ?? "GitHub";
@@ -56,6 +57,8 @@ export const getVcsType = (vcs: VcsTypeExtended): VcsType => {
     case "AZURE_DEVOPS":
     case "AZURE_DEVOPS_SERVER":
       return VcsType.AZURE_SP_MI;
+    case "GITEA":
+      return VcsType.GITEA;
     default:
       return VcsType.GITHUB;
   }
@@ -89,6 +92,8 @@ export const getVcsTypeExtended = (
     case VcsType.AZURE_SP_MI:
     case VcsType.AZURE_DEVOPS:
       return isDefault ? VcsTypeExtended.AZURE_DEVOPS : VcsTypeExtended.AZURE_DEVOPS_SERVER;
+    case VcsType.GITEA:
+      return VcsTypeExtended.GITEA;
     default:
       return VcsTypeExtended.GITHUB;
   }

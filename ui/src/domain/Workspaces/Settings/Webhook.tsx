@@ -88,7 +88,7 @@ const toAttributes = (trigger: Trigger, position: number) => ({
 });
 
 const EVENT_LABELS: Record<string, string> = { push: "Push", pull_request: "Pull request", release: "Release" };
-const SHARED_WEBHOOK_VCS = [VcsType.GITHUB, VcsType.GITLAB, VcsType.AZURE_SP_MI, VcsType.AZURE_DEVOPS];
+const SHARED_WEBHOOK_VCS = [VcsType.GITHUB, VcsType.GITEA, VcsType.GITLAB, VcsType.AZURE_SP_MI, VcsType.AZURE_DEVOPS];
 // Explicitly drop Content-Type: Elide's Spring routing maps DELETE requests carrying
 // "application/vnd.api+json" to its relationship-delete handler, which then rejects them.
 const deleteHeaders = { headers: { "Content-Type": undefined } };

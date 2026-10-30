@@ -2,7 +2,7 @@ import { GithubOutlined, GitlabOutlined } from "@ant-design/icons";
 import { Button, Flex, Form, Input, Radio, Typography, message } from "antd";
 import { useState } from "react";
 import { HiOutlineExternalLink } from "react-icons/hi";
-import { SiBitbucket } from "react-icons/si";
+import { SiBitbucket, SiGitea } from "react-icons/si";
 import { VscAzureDevops } from "react-icons/vsc";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useOrganizationName } from "@/hooks/useOrganizationName";
@@ -52,6 +52,7 @@ type CreateVcsForm = {
   clientId: string;
   clientSecret: string;
   privateKey: string;
+  accessToken: string;
   endpoint: string;
   apiUrl: string;
 };
@@ -125,6 +126,19 @@ const PROVIDERS: { key: string; label: string; icon: React.ReactNode; choices: C
     icon: <VscAzureDevops />,
     choices: [{ vcs: VcsTypeExtended.AZURE_DEVOPS, connectionType: OAUTH, label: "Azure DevOps Services" }],
   },
+  {
+    key: "gitea",
+    label: "Gitea",
+    icon: <SiGitea />,
+    choices: [
+      {
+        vcs: VcsTypeExtended.GITEA,
+        connectionType: STANDALONE,
+        label: "Gitea or Forgejo with an access token",
+        help: "Acts as the user who owns the token, with access to the repositories that user can see.",
+      },
+    ],
+  },
 ];
 
 const choiceKey = (choice: { vcs: VcsTypeExtended; connectionType: VcsConnectionType }) =>
@@ -174,6 +188,8 @@ const getHttpsPlaceholder = (vcs: VcsTypeExtended) => {
       return "https://bitbucket.example.com/context-path";
     case "AZURE_DEVOPS_SERVER":
       return "https://azure-devops.example.com";
+    case "GITEA":
+      return "https://gitea.example.com";
     default:
       return "https://github.example.com";
   }
@@ -188,6 +204,8 @@ const getAPIUrlPlaceholder = (vcs: VcsTypeExtended) => {
       return "https://bitbucket.example.com/context-path/rest/api/1.0";
     case "AZURE_DEVOPS_SERVER":
       return "https://azure-devops.example.com";
+    case "GITEA":
+      return "https://gitea.example.com/api/v1";
     default:
       return "https://github.example.com/api/v3";
   }
@@ -215,6 +233,7 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
   const callbackUrl = getCallbackUrl(uuid);
   const terrakubeAppName = `Terrakube (${useOrganizationName(orgid) ?? ""})`;
   const isGithubFamily = getVcsType(vcsType) === VcsType.GITHUB;
+  const isGitea = vcsType === VcsTypeExtended.GITEA;
   const oauth = connectionType === OAUTH;
   const showSecret = oauth && vcsType !== VcsTypeExtended.AZURE_DEVOPS;
 
@@ -225,6 +244,22 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
 
   const renderRegistration = () => {
     switch (vcsType) {
+      case "GITEA":
+        return (
+          <SettingsSection
+            maxWidth="100%"
+            title={`Create an access token on ${label}`}
+            description="Use a dedicated user with write access to the repositories Terrakube runs, and admin access where Terrakube should create the webhook."
+          >
+            <Form.Item label="Token scopes">
+              <ul className="vcs-guide-list">
+                <li>repository: Read and write (clone, hooks, commit statuses, PR comments)</li>
+                <li>issue: Read and write (PR comments and reactions)</li>
+                <li>user: Read</li>
+              </ul>
+            </Form.Item>
+          </SettingsSection>
+        );
       case "GITLAB":
       case "GITLAB_ENTERPRISE":
       case "GITLAB_COMMUNITY":
@@ -347,6 +382,8 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
 
   const credentialsHelp = () => {
     switch (getVcsType(vcsType)) {
+      case VcsType.GITEA:
+        return "Paste the token. Terrakube uses it for every API call and clone.";
       case VcsType.GITLAB:
         return "After you save the application, GitLab shows its application ID and secret.";
       case VcsType.BITBUCKET:
@@ -372,11 +409,13 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
           clientId: values.clientId,
           clientSecret: getVcsType(vcsType) != "AZURE_SP_MI" ? values.clientSecret : "12345",
           privateKey: values.privateKey,
+          ...(isGitea ? { accessToken: values.accessToken } : {}),
           callback: uuid,
           endpoint: values.endpoint,
           apiUrl: values.apiUrl,
           redirectUrl: `${getUiRedirectUri()}/organizations/${orgid}/settings/vcs`,
-          status: connectionType === "OAUTH" || getVcsType(vcsType) != "AZURE_SP_MI" ? "PENDING" : "COMPLETED",
+          status:
+            !isGitea && (connectionType === "OAUTH" || getVcsType(vcsType) != "AZURE_SP_MI") ? "PENDING" : "COMPLETED",
         },
       },
     };
@@ -472,6 +511,7 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
               <Typography.Text>
                 {label}
                 {isGithubFamily && (oauth ? " (OAuth app)" : " (GitHub App)")}
+                {isGitea && " (access token)"}
               </Typography.Text>
               <Button type="link" size="small" onClick={() => setCurrent(0)}>
                 Change provider
@@ -490,9 +530,11 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
             >
               <Input placeholder={label} />
             </Form.Item>
-            <Form.Item name="clientId" label={getClientIdName(vcsType, connectionType)} rules={[{ required: true }]}>
-              <Input className="resource-mono" placeholder={oauth ? "824ff023a7136981f322" : "970081"} />
-            </Form.Item>
+            {!isGitea && (
+              <Form.Item name="clientId" label={getClientIdName(vcsType, connectionType)} rules={[{ required: true }]}>
+                <Input className="resource-mono" placeholder={oauth ? "824ff023a7136981f322" : "970081"} />
+              </Form.Item>
+            )}
             <Form.Item
               name="endpoint"
               label="HTTPS URL"
@@ -517,6 +559,11 @@ export const AddVCS = ({ setMode, loadVCS }: Props) => {
                 label={getSecretIdName(vcsType, connectionType)}
                 rules={[{ required: true }]}
               >
+                <Input.Password className="resource-mono" autoComplete="off" />
+              </Form.Item>
+            )}
+            {isGitea && (
+              <Form.Item name="accessToken" label="Access token" rules={[{ required: true }]}>
                 <Input.Password className="resource-mono" autoComplete="off" />
               </Form.Item>
             )}
