@@ -78,6 +78,13 @@ public class GitHubWebhookService extends WebhookServiceBase {
         return jsonPayload;
     }
 
+    // Whether a PR whose head is in another repository (a fork) may trigger a
+    // run. Its code then comes from someone who may have no access to this
+    // repository, and a plan runs that code (providers, external data).
+    protected boolean acceptsForkPrs() {
+        return true;
+    }
+
     protected String newHookBody(String webhookUrl, String secret, String events) {
         return "{\"name\":\"web\",\"active\":true,\"events\":[" + events + "],\"config\":{\"url\":\""
                 + webhookUrl
@@ -139,7 +146,10 @@ public class GitHubWebhookService extends WebhookServiceBase {
             String repoOwner = rootNode.path("repository").path("owner").path("login").asText();
             String repoName = rootNode.path("repository").path("name").asText();
             String action = rootNode.path("action").asText();
-            if ("opened".equals(action) || "synchronize".equals(action) || "reopened".equals(action)) {
+            boolean prRunAction = "opened".equals(action) || "synchronize".equals(action) || "reopened".equals(action);
+            if (prRunAction && isForkPrRejected(rootNode.path("pull_request"))) {
+                result.setValid(false);
+            } else if (prRunAction) {
                 int prNumber = rootNode.path("number").asInt();
                 result.setPrNumber(prNumber);
 
@@ -204,6 +214,10 @@ public class GitHubWebhookService extends WebhookServiceBase {
                             if (prResponse != null && prResponse.getStatusCode().is2xxSuccessful()) {
                                 try {
                                     JsonNode prNode = objectMapper.readTree(prResponse.getBody());
+                                    if (isForkPrRejected(prNode)) {
+                                        result.setValid(false);
+                                        return result;
+                                    }
                                     result.setCommit(prNode.path("head").path("sha").asText());
                                     result.setBranch(prNode.path("head").path("ref").asText());
                                     result.setBaseBranch(prNode.path("base").path("ref").asText(null));
@@ -546,6 +560,9 @@ public class GitHubWebhookService extends WebhookServiceBase {
         }
         try {
             JsonNode prNode = objectMapper.readTree(prResponse.getBody());
+            if (isForkPrRejected(prNode)) {
+                return false;
+            }
             result.setCommit(prNode.path("head").path("sha").asText());
             result.setBranch(prNode.path("head").path("ref").asText());
             result.setBaseBranch(prNode.path("base").path("ref").asText(null));
@@ -631,6 +648,28 @@ public class GitHubWebhookService extends WebhookServiceBase {
         } else {
             log.warn("Failed to delete repo webhook with remote hook id {}, message {}", repoWebhook.getRemoteHookId(), response.getBody());
         }
+    }
+
+    private boolean isForkPrRejected(JsonNode prNode) {
+        if (acceptsForkPrs()) {
+            return false;
+        }
+        // By ID: a rename can't make two repositories look alike. A head whose
+        // repository is gone (a deleted fork) has no ID and is rejected too.
+        long headRepoId = prNode.path("head").path("repo").path("id").asLong(0);
+        long baseRepoId = prNode.path("base").path("repo").path("id").asLong(0);
+        // And from a branch: an AGit PR (git push HEAD:refs/for/main) needs only
+        // read access, and Gitea reports it with the base repository as its head,
+        // an empty label and ref refs/pull/<n>/head.
+        String headRef = prNode.path("head").path("ref").asText("");
+        String headLabel = prNode.path("head").path("label").asText("");
+        boolean fromBranch = !headRef.isBlank() && !headRef.startsWith("refs/") && !headLabel.isBlank();
+        if (headRepoId != 0 && headRepoId == baseRepoId && fromBranch) {
+            return false;
+        }
+        log.warn("Ignoring PR #{}: its head is not a branch of the repository itself (fork and AGit PRs don't trigger runs)",
+                prNode.path("number").asText());
+        return true;
     }
 
     private ResponseEntity<String> callGitHubApi(Vcs vcs, String[] ownerAndRepo, String body, String apiUrl,
