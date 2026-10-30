@@ -126,6 +126,9 @@ public class GitServiceImpl implements GitService {
                 else
                     credentialsProvider = new UsernamePasswordCredentialsProvider("x-access-token", accessToken);
                 break;
+            case "GITEA":
+                credentialsProvider = new UsernamePasswordCredentialsProvider("x-access-token", accessToken);
+                break;
             case "BITBUCKET":
                 credentialsProvider = new UsernamePasswordCredentialsProvider("x-token-auth", accessToken);
                 break;

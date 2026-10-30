@@ -129,6 +129,10 @@ public class ScriptEngineService {
                     credentialsProvider = new UsernamePasswordCredentialsProvider("x-token-auth",
                             privateRepositoryToken);
                     break;
+                case "GITEA":
+                    credentialsProvider = new UsernamePasswordCredentialsProvider("x-access-token",
+                            privateRepositoryToken);
+                    break;
                 case "AZURE_DEVOPS", "AZURE_SP_MI":
                     credentialsProvider = new UsernamePasswordCredentialsProvider("dummy", privateRepositoryToken);
                     break;

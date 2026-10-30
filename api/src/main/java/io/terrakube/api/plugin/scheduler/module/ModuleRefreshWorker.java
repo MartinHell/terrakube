@@ -177,6 +177,7 @@ public class ModuleRefreshWorker {
             case GITHUB -> vcs.getConnectionType() == VcsConnectionType.OAUTH
                     ? new UsernamePasswordCredentialsProvider(vcs.getAccessToken(), "")
                     : new UsernamePasswordCredentialsProvider("x-access-token", tokenService.getAccessToken(source, vcs));
+            case GITEA -> new UsernamePasswordCredentialsProvider("x-access-token", vcs.getAccessToken());
             case BITBUCKET -> new UsernamePasswordCredentialsProvider("x-token-auth", vcs.getAccessToken());
             case GITLAB -> new UsernamePasswordCredentialsProvider("oauth2", vcs.getAccessToken());
             case AZURE_DEVOPS -> new UsernamePasswordCredentialsProvider("dummy", vcs.getAccessToken());
