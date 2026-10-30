@@ -1,6 +1,9 @@
 package io.terrakube.api.plugin.vcs.provider.gitea;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
+import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
@@ -78,7 +81,24 @@ class GiteaWebhookServiceTest {
                                 + "\"status\":\"renamed\"}]")));
         gitea.stubFor(get(urlPathEqualTo("/api/v1/repos/infra/network/pulls/7"))
                 .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
-                        .withBody("{\"number\":7,\"head\":{\"ref\":\"feat/x\",\"sha\":\"abc123\"}}")));
+                        .withBody(prApiBody(7, 3))));
+        // PR 8 comes from a fork (head repository 9).
+        gitea.stubFor(get(urlPathEqualTo("/api/v1/repos/infra/network/pulls/8"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                        .withBody(prApiBody(8, 9))));
+        // PR 9 is an AGit PR (git push HEAD:refs/for/main): Gitea's convert.ToAPIPullRequest
+        // gives it the base repository as head, an empty label and ref refs/pull/9/head.
+        gitea.stubFor(get(urlPathEqualTo("/api/v1/repos/infra/network/pulls/9"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                        .withBody(prApiBody(9, 3).replace("\"label\":\"feat/x\",\"ref\":\"feat/x\"",
+                                "\"label\":\"\",\"ref\":\"refs/pull/9/head\""))));
+    }
+
+    // GET /repos/{owner}/{repo}/pulls/{n}: head and base carry their repository.
+    private static String prApiBody(int number, int headRepoId) {
+        return "{\"number\":" + number + ",\"head\":{\"label\":\"feat/x\",\"ref\":\"feat/x\",\"sha\":\"abc123\",\"repo_id\":" + headRepoId
+                + ",\"repo\":{\"id\":" + headRepoId + "}},\"base\":{\"label\":\"main\",\"ref\":\"main\",\"sha\":\"def456\",\"repo_id\":3,"
+                + "\"repo\":{\"id\":3}}}";
     }
 
     @AfterEach
@@ -101,10 +121,15 @@ class GiteaWebhookServiceTest {
     }
 
     private String pullRequestPayload(String action) {
+        return pullRequestPayload(action, 3);
+    }
+
+    private String pullRequestPayload(String action, int headRepoId) {
         return "{\"action\":\"" + action + "\",\"number\":7,"
                 + "\"pull_request\":{\"id\":70,\"number\":7,\"url\":\"https://git.example.com/infra/network/pulls/7\","
                 + "\"html_url\":\"https://git.example.com/infra/network/pulls/7\",\"user\":{\"login\":\"alice\"},"
-                + "\"head\":{\"ref\":\"feat/x\",\"sha\":\"abc123\"},\"base\":{\"ref\":\"main\",\"sha\":\"def456\"}},"
+                + "\"head\":{\"label\":\"feat/x\",\"ref\":\"feat/x\",\"sha\":\"abc123\",\"repo\":{\"id\":" + headRepoId + "}},"
+                + "\"base\":{\"ref\":\"main\",\"sha\":\"def456\",\"repo\":{\"id\":3}}},"
                 + "\"repository\":" + repository() + ",\"sender\":{\"login\":\"alice\"}}";
     }
 
@@ -155,8 +180,12 @@ class GiteaWebhookServiceTest {
     }
 
     private String prCommentPayload(String body) {
+        return prCommentPayload(body, 7);
+    }
+
+    private String prCommentPayload(String body, int number) {
         return "{\"action\":\"created\","
-                + "\"issue\":{\"id\":71,\"number\":7,\"title\":\"x\",\"user\":{\"login\":\"alice\"},"
+                + "\"issue\":{\"id\":71,\"number\":" + number + ",\"title\":\"x\",\"user\":{\"login\":\"alice\"},"
                 + "\"pull_request\":{\"merged\":false,\"merged_at\":null,\"draft\":false,"
                 + "\"html_url\":\"https://git.example.com/infra/network/pulls/7\"}},"
                 + "\"pull_request\":{\"id\":70,\"number\":7,\"url\":\"https://git.example.com/infra/network/pulls/7\"},"
@@ -260,5 +289,68 @@ class GiteaWebhookServiceTest {
         assertThat(body.path("config").path("content_type").asText()).isEqualTo("json");
         assertThat(body.path("events")).extracting(JsonNode::asText)
                 .contains("push", "pull_request", "issue_comment");
+    }
+    @Test
+    void forkPrIsIgnoredAndItsFilesAreNotFetched() throws Exception {
+        String payload = pullRequestPayload("opened", 9);
+
+        WebhookResult result = subject.processWebhook(payload, headers("pull_request", payload), SECRET, vcs);
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(gitea.findAll(getRequestedFor(urlPathEqualTo("/api/v1/repos/infra/network/pulls/7/files"))))
+                .isEmpty();
+    }
+
+    @Test
+    void prWhoseHeadRepositoryIsGoneIsIgnored() throws Exception {
+        String payload = pullRequestPayload("opened").replace("\"repo\":{\"id\":3}},\"base\"", "\"repo\":null},\"base\"");
+
+        WebhookResult result = subject.processWebhook(payload, headers("pull_request", payload), SECRET, vcs);
+
+        assertThat(result.isValid()).isFalse();
+    }
+
+    @Test
+    void commentCommandOnAForkPrIsIgnored() throws Exception {
+        String payload = prCommentPayload("terrakube plan", 8);
+
+        WebhookResult result = subject.processWebhook(payload, headers("issue_comment", payload), SECRET, vcs);
+
+        assertThat(result.isValid()).isFalse();
+    }
+
+    @Test
+    void sharedWebhookDoesNotResolveAForkPr() {
+        WebhookResult result = new WebhookResult();
+
+        boolean resolved = subject.resolvePrDetails(vcs, "https://git.example.com/infra/network",
+                repoApiUrl + "/pulls/8", result);
+
+        assertThat(resolved).isFalse();
+        assertThat(result.getCommit()).isNull();
+    }
+
+    @Test
+    void applyCommentIsIgnored() throws Exception {
+        String payload = prCommentPayload("terrakube apply");
+
+        WebhookResult result = subject.processWebhook(payload, headers("issue_comment", payload), SECRET, vcs);
+
+        assertThat(result.isValid()).isFalse();
+        assertThat(result.isPrComment()).isFalse();
+    }
+
+    @Test
+    void agitPrIsIgnoredOnEveryPath() throws Exception {
+        String payload = pullRequestPayload("opened")
+                .replace("\"label\":\"feat/x\",\"ref\":\"feat/x\"", "\"label\":\"\",\"ref\":\"refs/pull/7/head\"");
+        assertThat(subject.processWebhook(payload, headers("pull_request", payload), SECRET, vcs).isValid()).isFalse();
+
+        String comment = prCommentPayload("terrakube plan", 9);
+        assertThat(subject.processWebhook(comment, headers("issue_comment", comment), SECRET, vcs).isValid())
+                .isFalse();
+
+        assertThat(subject.resolvePrDetails(vcs, "https://git.example.com/infra/network",
+                repoApiUrl + "/pulls/9", new WebhookResult())).isFalse();
     }
 }

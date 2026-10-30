@@ -45,6 +45,27 @@ public class GiteaWebhookService extends GitHubWebhookService {
         return JobVia.GITEA.getValue();
     }
 
+    // Fork PRs run code from outside the repository; Gitea gives us no
+    // reliable way to tell whether its author may write here (the API's
+    // collaborator permission leaves out team access), so they never trigger.
+    @Override
+    protected boolean acceptsForkPrs() {
+        return false;
+    }
+
+    // "terrakube apply" from a comment: anyone who can comment could apply,
+    // and for the same reason we can't check that they may write. Applies
+    // happen on merge instead.
+    @Override
+    protected String parseTerrakubeCommand(String commentBody) {
+        String command = super.parseTerrakubeCommand(commentBody);
+        if ("apply".equals(command)) {
+            log.warn("Ignoring 'terrakube apply' comment: not supported for Gitea, apply by merging");
+            return null;
+        }
+        return command;
+    }
+
     // Gitea ignores insecure_ssl and name; its own "type" is required. On Gitea
     // "pull_request" also covers comments on PRs (pull_request_comment), so the
     // GitHub event list works unchanged.
