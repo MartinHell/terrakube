@@ -234,6 +234,9 @@ public class TclService {
                     importCredentialProvider = new UsernamePasswordCredentialsProvider("x-access-token", vcs.getAccessToken());
                 }
                 break;
+            case "GITEA":
+                importCredentialProvider = new UsernamePasswordCredentialsProvider("x-access-token", vcs.getAccessToken());
+                break;
             case "AZURE_DEVOPS", "AZURE_SP_MI":
                 importCredentialProvider = new UsernamePasswordCredentialsProvider("dummy", vcs.getAccessToken());
                 break;

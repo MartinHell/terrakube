@@ -209,6 +209,10 @@ public class ModuleRefreshJob implements Job {
                                 tokenService.getAccessToken(source, vcs));
                     }
                     break;
+                case GITEA:
+                    credentialsProvider = new UsernamePasswordCredentialsProvider("x-access-token",
+                            vcs.getAccessToken());
+                    break;
                 case BITBUCKET:
                     credentialsProvider = new UsernamePasswordCredentialsProvider("x-token-auth",
                             vcs.getAccessToken());
