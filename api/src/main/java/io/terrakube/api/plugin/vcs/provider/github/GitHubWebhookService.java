@@ -455,7 +455,7 @@ public class GitHubWebhookService extends WebhookServiceBase {
 
         // Previously the remote_hook_id is the whole URL of the webhook, hence the
         // below check. This can be removed in a major version upgrade.
-        if (!webhookRemoteId.substring(0, 4).equals("http")) {
+        if (!webhookRemoteId.startsWith("http")) {
             apiUrl = workspace.getVcs().getApiUrl() + "/repos/" + String.join("/", ownerAndRepo) + "/hooks/"
                     + webhookRemoteId;
         }
