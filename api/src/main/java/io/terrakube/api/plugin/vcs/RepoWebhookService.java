@@ -27,6 +27,7 @@ import io.terrakube.api.plugin.execution.WorkspaceBranchPolicy;
 import io.terrakube.api.plugin.scheduler.ScheduleJobService;
 import io.terrakube.api.plugin.security.audit.AuditActorContext;
 import io.terrakube.api.plugin.vcs.provider.azdevops.AzDevOpsWebhookService;
+import io.terrakube.api.plugin.vcs.provider.gitea.GiteaWebhookService;
 import io.terrakube.api.plugin.vcs.provider.github.GitHubWebhookService;
 import io.terrakube.api.plugin.vcs.provider.gitlab.GitLabWebhookService;
 import io.terrakube.api.repository.JobRepository;
@@ -36,6 +37,7 @@ import io.terrakube.api.repository.WorkspaceRepository;
 import io.terrakube.api.rs.job.Job;
 import io.terrakube.api.rs.job.JobStatus;
 import io.terrakube.api.rs.job.JobVia;
+import io.terrakube.api.rs.vcs.Vcs;
 import io.terrakube.api.rs.vcs.VcsType;
 import io.terrakube.api.rs.webhook.RepoWebhook;
 import io.terrakube.api.rs.webhook.WebhookEvent;
@@ -57,6 +59,7 @@ public class RepoWebhookService {
     WorkspaceRepository workspaceRepository;
     WebhookEventRepository webhookEventRepository;
     GitHubWebhookService gitHubWebhookService;
+    GiteaWebhookService giteaWebhookService;
     GitLabWebhookService gitLabWebhookService;
     AzDevOpsWebhookService azDevOpsWebhookService;
     JobRepository jobRepository;
@@ -67,6 +70,12 @@ public class RepoWebhookService {
     Executor workspaceFanoutExecutor;
     WorkspaceBranchPolicy workspaceBranchPolicy;
     WebhookProperties webhookProperties;
+
+    // Everything that isn't GitLab or Azure DevOps goes through the GitHub provider;
+    // Gitea is a subclass of it.
+    private GitHubWebhookService githubApi(Vcs vcs) {
+        return vcs != null && vcs.getVcsType() == VcsType.GITEA ? giteaWebhookService : gitHubWebhookService;
+    }
 
     private boolean isGitLab(RepoWebhook repoWebhook) {
         return repoWebhook.getVcs() != null && repoWebhook.getVcs().getVcsType() == VcsType.GITLAB;
@@ -147,7 +156,8 @@ public class RepoWebhookService {
         } else if (isGitLab(repoWebhook)) {
             remoteHookId = gitLabWebhookService.createOrUpdateRepoWebhook(repoWebhook, eventTypes, hasPrWorkflow);
         } else {
-            remoteHookId = gitHubWebhookService.createOrUpdateRepoWebhook(repoWebhook, eventTypes, hasPrWorkflow);
+            remoteHookId = githubApi(repoWebhook.getVcs()).createOrUpdateRepoWebhook(repoWebhook, eventTypes,
+                    hasPrWorkflow);
         }
         repoWebhook.setRemoteHookId(remoteHookId);
         repoWebhookRepository.save(repoWebhook);
@@ -164,7 +174,7 @@ public class RepoWebhookService {
             } else if (isGitLab(repoWebhook)) {
                 gitLabWebhookService.deleteRepoWebhook(repoWebhook);
             } else {
-                gitHubWebhookService.deleteRepoWebhook(repoWebhook);
+                githubApi(repoWebhook.getVcs()).deleteRepoWebhook(repoWebhook);
             }
             repoWebhookRepository.delete(repoWebhook);
             log.info("Deleted orphan repo webhook {} for {}", repoWebhook.getId(), repoWebhook.getRepositoryUrl());
@@ -225,7 +235,7 @@ public class RepoWebhookService {
         } else if (gitlab) {
             webhookResult = gitLabWebhookService.parseGitLabPayload(jsonPayload, headers);
         } else {
-            webhookResult = gitHubWebhookService.parseGitHubPayload(jsonPayload, headers);
+            webhookResult = githubApi(repoWebhook.getVcs()).parseGitHubPayload(jsonPayload, headers);
         }
 
         if (webhookResult.getEvent() != null && webhookResult.getEvent().equals("ping")) {
@@ -254,7 +264,7 @@ public class RepoWebhookService {
             List<String> prFiles = gitlab
                     ? gitLabWebhookService.fetchPrFileChanges(repoWebhook.getVcs(), normalizedUrl,
                             webhookResult.getPrFilesUrl())
-                    : gitHubWebhookService.fetchPrFileChanges(repoWebhook.getVcs(), normalizedUrl,
+                    : githubApi(repoWebhook.getVcs()).fetchPrFileChanges(repoWebhook.getVcs(), normalizedUrl,
                             webhookResult.getPrFilesUrl());
             webhookResult.setFileChanges(prFiles);
         }
@@ -313,7 +323,7 @@ public class RepoWebhookService {
                 log.warn("Workspace {} has no VCS, cannot resolve PR comment details", workspace.getName());
                 return;
             }
-            boolean resolved = gitHubWebhookService.resolvePrDetails(workspace.getVcs(), workspace.getSource(),
+            boolean resolved = githubApi(workspace.getVcs()).resolvePrDetails(workspace.getVcs(), workspace.getSource(),
                     webhookResult.getPrDetailsUrl(), webhookResult);
             if (!resolved) {
                 log.warn("Failed to resolve PR comment details for workspace {}, skipping", workspace.getName());
@@ -372,7 +382,7 @@ public class RepoWebhookService {
                 List<String> prFiles = isGitLab(workspace)
                         ? gitLabWebhookService.fetchPrFileChanges(
                                 workspace.getVcs(), workspace.getSource(), webhookResult.getPrFilesUrl())
-                        : gitHubWebhookService.fetchPrFileChanges(
+                        : githubApi(workspace.getVcs()).fetchPrFileChanges(
                                 workspace.getVcs(), workspace.getSource(), webhookResult.getPrFilesUrl());
                 webhookResult.setFileChanges(prFiles);
             } else {
@@ -520,7 +530,7 @@ public class RepoWebhookService {
             } else if (isGitLab(workspace)) {
                 gitLabWebhookService.sendCommitStatus(savedJob, JobStatus.pending, null);
             } else {
-                gitHubWebhookService.sendCommitStatus(savedJob, JobStatus.pending, null);
+                githubApi(workspace.getVcs()).sendCommitStatus(savedJob, JobStatus.pending, null);
             }
         }
         scheduleJobService.createJobContext(savedJob);

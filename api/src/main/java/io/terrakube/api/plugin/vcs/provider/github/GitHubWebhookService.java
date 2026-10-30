@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +37,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.extern.slf4j.Slf4j;
 
+// Primary: GiteaWebhookService extends this class, so injecting by type must
+// still mean GitHub.
+@Primary
 @Service
 @Slf4j
 public class GitHubWebhookService extends WebhookServiceBase {
@@ -58,11 +62,30 @@ public class GitHubWebhookService extends WebhookServiceBase {
     }
 
     public WebhookResult processWebhook(String jsonPayload, Map<String, String> headers, String token, Vcs vcs) {
-        return handleWebhook(jsonPayload, headers, token, "x-hub-signature-256", JobVia.GITHUB.getValue(),
+        return handleWebhook(jsonPayload, headers, token, "x-hub-signature-256", via(),
                 (payload, result, headerMap) -> handleEvent(payload, result, headerMap, vcs));
     }
 
+    // Extension points for providers that speak GitHub's API with small payload
+    // differences (GiteaWebhookService).
+    protected String via() {
+        return JobVia.GITHUB.getValue();
+    }
+
+    // Rewrites a delivery into GitHub's payload shape before it is parsed. Runs
+    // after the signature check, which covers the payload as received.
+    protected String normalizePayload(String jsonPayload) {
+        return jsonPayload;
+    }
+
+    protected String newHookBody(String webhookUrl, String secret, String events) {
+        return "{\"name\":\"web\",\"active\":true,\"events\":[" + events + "],\"config\":{\"url\":\""
+                + webhookUrl
+                + "\",\"secret\":\"" + secret + "\",\"content_type\":\"json\",\"insecure_ssl\":\"" + insecureSsl + "\"}}";
+    }
+
     private WebhookResult handleEvent(String jsonPayload, WebhookResult result, Map<String, String> headers, Vcs vcs) {
+        jsonPayload = normalizePayload(jsonPayload);
         String event = headers.get("x-github-event");
         result.setEvent(event);
         if (event.equals("ping")) {
@@ -387,9 +410,7 @@ public class GitHubWebhookService extends WebhookServiceBase {
             apiUrl = apiUrl + "/" + webhook.getRemoteHookId();
             httpMethod = HttpMethod.PATCH;
         } else {
-            body = "{\"name\":\"web\",\"active\":true,\"events\":[" + events + "],\"config\":{\"url\":\""
-                    + webhookUrl
-                    + "\",\"secret\":\"" + secret + "\",\"content_type\":\"json\",\"insecure_ssl\":\"" + insecureSsl + "\"}}";
+            body = newHookBody(webhookUrl, secret, events);
         }
 
         ResponseEntity<String> response = callGitHubApi(workspace.getVcs(), ownerAndRepo, body, apiUrl,
@@ -502,7 +523,7 @@ public class GitHubWebhookService extends WebhookServiceBase {
     public WebhookResult parseGitHubPayload(String jsonPayload, Map<String, String> headers, Vcs vcs) {
         WebhookResult result = new WebhookResult();
         result.setBranch("");
-        result.setVia(JobVia.GITHUB.getValue());
+        result.setVia(via());
         result.setValid(true);
         return handleEvent(jsonPayload, result, headers, vcs);
     }
@@ -572,9 +593,7 @@ public class GitHubWebhookService extends WebhookServiceBase {
             }
         }
 
-        String body = "{\"name\":\"web\",\"active\":true,\"events\":[" + events + "],\"config\":{\"url\":\""
-                + webhookUrl
-                + "\",\"secret\":\"" + repoWebhook.getWebhookSecret() + "\",\"content_type\":\"json\",\"insecure_ssl\":\"" + insecureSsl + "\"}}";
+        String body = newHookBody(webhookUrl, repoWebhook.getWebhookSecret(), events);
         ResponseEntity<String> response = callGitHubApi(repoWebhook.getVcs(), ownerAndRepo, body, hooksUrl, HttpMethod.POST);
         if (response != null && (response.getStatusCode().value() == 201 || response.getStatusCode().value() == 200)) {
             try {

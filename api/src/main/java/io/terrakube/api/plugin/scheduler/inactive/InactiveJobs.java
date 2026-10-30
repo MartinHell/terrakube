@@ -114,8 +114,8 @@ public class InactiveJobs implements org.quartz.Job {
         }
 
         switch (workspaceVcs.getVcsType()) {
-            case GITHUB:
-                log.info("Updating VCS information for GITHUB on job {}", job.getId());
+            case GITHUB, GITEA:
+                log.info("Updating VCS information for {} on job {}", workspaceVcs.getVcsType(), job.getId());
                 gitHubWebhookService.sendCommitStatus(job, expiry.finalStatus(), null);
                 break;
             case GITLAB:

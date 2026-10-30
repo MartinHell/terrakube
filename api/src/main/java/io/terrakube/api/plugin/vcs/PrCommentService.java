@@ -44,7 +44,7 @@ public class PrCommentService {
 
     private static final int MAX_COMMENT_LENGTH = 60000;
     private static final int MAX_TABLE_ROWS = 50;
-    private static final Set<VcsType> PR_COMMENT_SUPPORTED_VCS = EnumSet.of(VcsType.GITHUB, VcsType.GITLAB, VcsType.BITBUCKET);
+    private static final Set<VcsType> PR_COMMENT_SUPPORTED_VCS = EnumSet.of(VcsType.GITHUB, VcsType.GITEA, VcsType.GITLAB, VcsType.BITBUCKET);
     private static final Pattern RUN_SUMMARY_PATTERN = Pattern.compile(
             // The "N to import, " clause only appears when the plan includes an import block -
             // optional, and always first when present (matches Terraform/OpenTofu's own
@@ -213,7 +213,7 @@ public class PrCommentService {
 
     private boolean updateComment(Job job, String commentId, String markdownComment) {
         switch (job.getWorkspace().getVcs().getVcsType()) {
-            case GITHUB:
+            case GITHUB, GITEA:
                 return gitHubWebhookService.updatePrComment(job, commentId, markdownComment);
             case GITLAB:
                 return gitLabWebhookService.updateMergeRequestNote(job, commentId, markdownComment);
@@ -353,7 +353,7 @@ public class PrCommentService {
 
         try {
             switch (workspace.getVcs().getVcsType()) {
-                case GITHUB:
+                case GITHUB, GITEA:
                     gitHubWebhookService.addCommentReaction(workspace, commentId, "eyes");
                     break;
                 case GITLAB:
@@ -380,7 +380,7 @@ public class PrCommentService {
         boolean success = job.getStatus() == JobStatus.completed;
         try {
             switch (job.getWorkspace().getVcs().getVcsType()) {
-                case GITHUB:
+                case GITHUB, GITEA:
                     gitHubWebhookService.addCommentReaction(job.getWorkspace(), commentId, success ? "+1" : "-1");
                     break;
                 case GITLAB:
@@ -398,7 +398,7 @@ public class PrCommentService {
     private String postComment(Job job, String markdownComment) {
         String commentId = null;
         switch (job.getWorkspace().getVcs().getVcsType()) {
-            case GITHUB:
+            case GITHUB, GITEA:
                 commentId = gitHubWebhookService.postPrComment(job, markdownComment);
                 break;
             case GITLAB:
@@ -727,7 +727,7 @@ public class PrCommentService {
             return;
         }
         VcsType vcsType = job.getWorkspace().getVcs().getVcsType();
-        if (vcsType != VcsType.GITHUB && vcsType != VcsType.GITLAB) {
+        if (vcsType != VcsType.GITHUB && vcsType != VcsType.GITEA && vcsType != VcsType.GITLAB) {
             return;
         }
 
@@ -806,7 +806,7 @@ public class PrCommentService {
         }
 
         try {
-            if (vcsType == VcsType.GITHUB) {
+            if (vcsType == VcsType.GITHUB || vcsType == VcsType.GITEA) {
                 GithubCommitStatus status = passed ? GithubCommitStatus.success : GithubCommitStatus.failure;
                 gitHubWebhookService.sendCommitStatus(job, context, status, description);
             } else if (vcsType == VcsType.GITLAB) {

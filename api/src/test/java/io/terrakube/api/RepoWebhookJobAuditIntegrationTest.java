@@ -142,7 +142,7 @@ class RepoWebhookJobAuditIntegrationTest extends ServerApplicationTests {
 
         try (var worker = Executors.newSingleThreadExecutor()) {
             RepoWebhookService service = new RepoWebhookService(mock(RepoWebhookRepository.class), workspaceLookup,
-                    events, gitHub, mock(GitLabWebhookService.class), mock(AzDevOpsWebhookService.class),
+                    events, gitHub, null, mock(GitLabWebhookService.class), mock(AzDevOpsWebhookService.class),
                     jobRepository, scheduling, mock(PrCommentService.class), mock(RepoWebhookDeliveryTransactions.class),
                     new ObjectMapper(), worker, mock(WorkspaceBranchPolicy.class), new WebhookProperties());
             service.processClaimedDelivery(repoWebhook, "payload", Map.of());

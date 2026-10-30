@@ -11,6 +11,7 @@ public enum JobVia {
    GITLAB("Gitlab"),
    BITBUCKET("Bitbucket"),
    AZURE_DEVOPS("AzureDevops"),
+   GITEA("Gitea"),
    SCHEDULE("Schedule"),
    DRIFT("Drift"),
    RUN_TRIGGER("RunTrigger");

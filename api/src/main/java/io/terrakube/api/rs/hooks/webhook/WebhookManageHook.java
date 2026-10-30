@@ -123,12 +123,12 @@ public class WebhookManageHook implements LifeCycleHook<Webhook> {
         return elideEntity.isMigratedV2() && isSharedWebhookProvider(elideEntity);
     }
 
-    // GitHub, GitLab and Azure DevOps (AZURE_SP_MI / AZURE_DEVOPS) participate in the shared,
+    // GitHub, Gitea, GitLab and Azure DevOps (AZURE_SP_MI / AZURE_DEVOPS) participate in the shared,
     // repository-level (v2) webhook flow reconciled asynchronously by
     // RepoWebhookSyncJob.
     private boolean isSharedWebhookProvider(Webhook elideEntity) {
         VcsType vcsType = vcsType(elideEntity);
-        return vcsType == VcsType.GITHUB || vcsType == VcsType.GITLAB || vcsType == VcsType.AZURE_SP_MI || vcsType == VcsType.AZURE_DEVOPS;
+        return vcsType == VcsType.GITHUB || vcsType == VcsType.GITEA || vcsType == VcsType.GITLAB || vcsType == VcsType.AZURE_SP_MI || vcsType == VcsType.AZURE_DEVOPS;
     }
 
     private VcsType vcsType(Webhook elideEntity) {

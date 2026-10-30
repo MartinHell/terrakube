@@ -1,0 +1,264 @@
+package io.terrakube.api.plugin.vcs.provider.gitea;
+
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.HexFormat;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RestTemplate;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.tomakehurst.wiremock.WireMockServer;
+
+import io.terrakube.api.plugin.vcs.TokenService;
+import io.terrakube.api.plugin.vcs.WebhookResult;
+import io.terrakube.api.rs.vcs.Vcs;
+import io.terrakube.api.rs.vcs.VcsType;
+import io.terrakube.api.rs.webhook.RepoWebhook;
+import io.terrakube.api.rs.webhook.WebhookEventType;
+
+// Payloads follow Gitea's own structs (modules/structs, services/convert):
+// pull_request.url is the PR's web page, issue.pull_request has only html_url,
+// repository.url is the repository's API URL.
+class GiteaWebhookServiceTest {
+
+    private static final String WORKSPACE_ID = "8f0c2b1e-0000-4000-8000-000000000001";
+    private static final String SECRET = Base64.getEncoder()
+            .encodeToString(WORKSPACE_ID.getBytes(StandardCharsets.UTF_8));
+
+    WireMockServer gitea;
+    GiteaWebhookService subject;
+    Vcs vcs;
+    String apiUrl;
+    String repoApiUrl;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        gitea = new WireMockServer(options().dynamicPort());
+        gitea.start();
+        apiUrl = "http://localhost:" + gitea.port() + "/api/v1";
+        repoApiUrl = apiUrl + "/repos/infra/network";
+
+        TokenService tokenService = mock(TokenService.class);
+        when(tokenService.getAccessToken(any(String[].class), any())).thenReturn("gitea-token");
+        subject = new GiteaWebhookService(new ObjectMapper(), tokenService);
+        subject.setWebhookRestTemplate(new RestTemplate(new HttpComponentsClientHttpRequestFactory()));
+        ReflectionTestUtils.setField(subject, "hostname", "terrakube-api.example.com");
+
+        vcs = new Vcs();
+        vcs.setVcsType(VcsType.GITEA);
+        vcs.setApiUrl(apiUrl);
+
+        gitea.stubFor(get(urlPathEqualTo("/api/v1/repos/infra/network/pulls/7/files"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                        .withBody("[{\"filename\":\"stacks/pilot/main.tf\",\"status\":\"modified\"},"
+                                + "{\"filename\":\"stacks/new/main.tf\",\"previous_filename\":\"stacks/old/main.tf\","
+                                + "\"status\":\"renamed\"}]")));
+        gitea.stubFor(get(urlPathEqualTo("/api/v1/repos/infra/network/pulls/7"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                        .withBody("{\"number\":7,\"head\":{\"ref\":\"feat/x\",\"sha\":\"abc123\"}}")));
+    }
+
+    @AfterEach
+    void tearDown() {
+        gitea.stop();
+    }
+
+    private String repository() {
+        return "{\"id\":3,\"name\":\"network\",\"full_name\":\"infra/network\",\"owner\":{\"login\":\"infra\"},"
+                + "\"html_url\":\"https://git.example.com/infra/network\",\"url\":\"" + repoApiUrl + "\"}";
+    }
+
+    private static Map<String, String> headers(String event, String payload) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        String sig = HexFormat.of().formatHex(mac.doFinal(payload.getBytes(StandardCharsets.UTF_8)));
+        // What Gitea's deliver.go sends (lowercased, as WebhookHeaders.caseInsensitive leaves them).
+        return Map.of("x-github-event", event, "x-gitea-event", event,
+                "x-hub-signature-256", "sha256=" + sig, "x-gitea-signature", sig);
+    }
+
+    private String pullRequestPayload(String action) {
+        return "{\"action\":\"" + action + "\",\"number\":7,"
+                + "\"pull_request\":{\"id\":70,\"number\":7,\"url\":\"https://git.example.com/infra/network/pulls/7\","
+                + "\"html_url\":\"https://git.example.com/infra/network/pulls/7\",\"user\":{\"login\":\"alice\"},"
+                + "\"head\":{\"ref\":\"feat/x\",\"sha\":\"abc123\"},\"base\":{\"ref\":\"main\",\"sha\":\"def456\"}},"
+                + "\"repository\":" + repository() + ",\"sender\":{\"login\":\"alice\"}}";
+    }
+
+    @Test
+    void pushToAnOpenPrIsASynchronizeWithTheApiFileList() throws Exception {
+        String payload = pullRequestPayload("synchronized");
+
+        WebhookResult result = subject.processWebhook(payload, headers("pull_request", payload), SECRET, vcs);
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(result.getVia()).isEqualTo("Gitea");
+        assertThat(result.getPrNumber()).isEqualTo(7);
+        assertThat(result.getCommit()).isEqualTo("abc123");
+        assertThat(result.getBranch()).isEqualTo("feat/x");
+        assertThat(result.getCreatedBy()).isEqualTo("alice");
+        assertThat(result.getPrFilesUrl()).isEqualTo(repoApiUrl + "/pulls/7/files");
+        assertThat(result.getFileChanges())
+                .containsExactly("stacks/pilot/main.tf", "stacks/new/main.tf", "stacks/old/main.tf");
+    }
+
+    @Test
+    void openedPrIsAccepted() throws Exception {
+        String payload = pullRequestPayload("opened");
+
+        WebhookResult result = subject.processWebhook(payload, headers("pull_request", payload), SECRET, vcs);
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(result.getPrNumber()).isEqualTo(7);
+    }
+
+    @Test
+    void otherPrActionsAreIgnored() throws Exception {
+        String payload = pullRequestPayload("label_updated");
+
+        WebhookResult result = subject.processWebhook(payload, headers("pull_request", payload), SECRET, vcs);
+
+        assertThat(result.isValid()).isFalse();
+    }
+
+    @Test
+    void wrongSignatureIsRejected() throws Exception {
+        String payload = pullRequestPayload("opened");
+        Map<String, String> headers = headers("pull_request", payload.replace("alice", "mallory"));
+
+        WebhookResult result = subject.processWebhook(payload, headers, SECRET, vcs);
+
+        assertThat(result.isValid()).isFalse();
+    }
+
+    private String prCommentPayload(String body) {
+        return "{\"action\":\"created\","
+                + "\"issue\":{\"id\":71,\"number\":7,\"title\":\"x\",\"user\":{\"login\":\"alice\"},"
+                + "\"pull_request\":{\"merged\":false,\"merged_at\":null,\"draft\":false,"
+                + "\"html_url\":\"https://git.example.com/infra/network/pulls/7\"}},"
+                + "\"pull_request\":{\"id\":70,\"number\":7,\"url\":\"https://git.example.com/infra/network/pulls/7\"},"
+                + "\"comment\":{\"id\":901,\"body\":\"" + body + "\",\"user\":{\"login\":\"bob\"}},"
+                + "\"repository\":" + repository() + ",\"sender\":{\"login\":\"bob\"},\"is_pull\":true}";
+    }
+
+    @Test
+    void prCommentCommandResolvesThePrFromTheApi() throws Exception {
+        String payload = prCommentPayload("terrakube plan");
+
+        WebhookResult result = subject.processWebhook(payload, headers("issue_comment", payload), SECRET, vcs);
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(result.isPrComment()).isTrue();
+        assertThat(result.getCommentCommand()).isEqualTo("plan");
+        assertThat(result.getCommentId()).isEqualTo("901");
+        assertThat(result.getPrNumber()).isEqualTo(7);
+        assertThat(result.getCreatedBy()).isEqualTo("bob");
+        assertThat(result.getCommit()).isEqualTo("abc123");
+        assertThat(result.getBranch()).isEqualTo("feat/x");
+        assertThat(result.getFileChanges()).contains("stacks/pilot/main.tf");
+    }
+
+    @Test
+    void sharedWebhookPrCommentDefersToTheApiUrl() {
+        String payload = prCommentPayload("terrakube plan");
+
+        WebhookResult result = subject.parseGitHubPayload(payload, Map.of("x-github-event", "issue_comment"));
+
+        assertThat(result.isPrComment()).isTrue();
+        assertThat(result.getVia()).isEqualTo("Gitea");
+        assertThat(result.getPrDetailsUrl()).isEqualTo(repoApiUrl + "/pulls/7");
+        assertThat(result.getPrFilesUrl()).isEqualTo(repoApiUrl + "/pulls/7/files");
+    }
+
+    @Test
+    void commentOnAPlainIssueIsIgnored() {
+        String payload = "{\"action\":\"created\",\"issue\":{\"number\":3,\"pull_request\":null},"
+                + "\"comment\":{\"id\":5,\"body\":\"terrakube plan\",\"user\":{\"login\":\"bob\"}},"
+                + "\"repository\":" + repository() + ",\"is_pull\":false}";
+
+        WebhookResult result = subject.parseGitHubPayload(payload, Map.of("x-github-event", "issue_comment"));
+
+        assertThat(result.isValid()).isFalse();
+    }
+
+    @Test
+    void pushIsParsedUnchanged() {
+        String payload = "{\"ref\":\"refs/heads/main\",\"before\":\"0\",\"after\":\"abc123\","
+                + "\"commits\":[{\"id\":\"abc123\",\"added\":[\"a.tf\"],\"removed\":[],\"modified\":[\"b.tf\"]}],"
+                + "\"head_commit\":{\"id\":\"abc123\",\"added\":[\"a.tf\"],\"removed\":[],\"modified\":[\"b.tf\"]},"
+                + "\"repository\":" + repository() + ",\"pusher\":{\"login\":\"alice\",\"email\":\"alice@example.com\"},"
+                + "\"sender\":{\"login\":\"alice\"}}";
+
+        WebhookResult result = subject.parseGitHubPayload(payload, Map.of("x-github-event", "push"));
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(result.getBranch()).isEqualTo("main");
+        assertThat(result.getCommit()).isEqualTo("abc123");
+        assertThat(result.getCreatedBy()).isEqualTo("alice");
+        assertThat(result.getFileChanges()).containsExactly("a.tf", "b.tf");
+    }
+
+    @Test
+    void publishedReleaseIsARelease() {
+        String payload = "{\"action\":\"published\",\"release\":{\"id\":1,\"tag_name\":\"v1.2.0\"},"
+                + "\"repository\":" + repository() + "}";
+
+        WebhookResult result = subject.parseGitHubPayload(payload, Map.of("x-github-event", "release"));
+
+        assertThat(result.isValid()).isTrue();
+        assertThat(result.isRelease()).isTrue();
+        assertThat(result.getBranch()).isEqualTo("v1.2.0");
+    }
+
+    @Test
+    void createsTheRepositoryHookWithGiteasType() throws Exception {
+        gitea.stubFor(post(urlPathEqualTo("/api/v1/repos/infra/network/hooks"))
+                .willReturn(aResponse().withStatus(201).withHeader("Content-Type", "application/json")
+                        .withBody("{\"id\":42,\"type\":\"gitea\"}")));
+        RepoWebhook repoWebhook = new RepoWebhook();
+        repoWebhook.setId(UUID.fromString("00000000-0000-4000-8000-0000000000aa"));
+        repoWebhook.setRepositoryUrl("https://git.example.com/infra/network");
+        repoWebhook.setWebhookSecret("s3cret");
+        repoWebhook.setVcs(vcs);
+
+        String id = subject.createOrUpdateRepoWebhook(repoWebhook,
+                Set.of(WebhookEventType.PUSH, WebhookEventType.PULL_REQUEST), true);
+
+        assertThat(id).isEqualTo("42");
+        String sent = gitea.findAll(postRequestedFor(urlPathEqualTo("/api/v1/repos/infra/network/hooks")))
+                .get(0).getBodyAsString();
+        JsonNode body = new ObjectMapper().readTree(sent);
+        assertThat(body.path("type").asText()).isEqualTo("gitea");
+        assertThat(body.path("active").asBoolean()).isTrue();
+        assertThat(body.has("name")).isFalse();
+        assertThat(body.path("config").path("url").asText())
+                .isEqualTo("https://terrakube-api.example.com/webhook/v2/00000000-0000-4000-8000-0000000000aa");
+        assertThat(body.path("config").path("secret").asText()).isEqualTo("s3cret");
+        assertThat(body.path("config").path("content_type").asText()).isEqualTo("json");
+        assertThat(body.path("events")).extracting(JsonNode::asText)
+                .contains("push", "pull_request", "issue_comment");
+    }
+}
