@@ -13,6 +13,7 @@ import io.terrakube.api.plugin.scheduler.ScheduleJobService;
 import io.terrakube.api.plugin.scheduler.module.ModuleRefreshTransactions;
 import io.terrakube.api.plugin.vcs.provider.azdevops.AzDevOpsWebhookService;
 import io.terrakube.api.plugin.vcs.provider.bitbucket.BitBucketWebhookService;
+import io.terrakube.api.plugin.vcs.provider.gitea.GiteaWebhookService;
 import io.terrakube.api.plugin.vcs.provider.github.GitHubWebhookService;
 import io.terrakube.api.plugin.vcs.provider.gitlab.GitLabWebhookService;
 import io.terrakube.api.repository.JobRepository;
@@ -42,6 +43,7 @@ public class WebhookService {
     WebhookRepository webhookRepository;
     WebhookEventRepository webhookEventRepository;
     GitHubWebhookService gitHubWebhookService;
+    GiteaWebhookService giteaWebhookService;
     GitLabWebhookService gitLabWebhookService;
     BitBucketWebhookService bitBucketWebhookService;
     AzDevOpsWebhookService azDevOpsWebhookService;
@@ -78,6 +80,10 @@ public class WebhookService {
         switch (vcs.getVcsType()) {
             case GITHUB:
                 webhookResult = gitHubWebhookService.processWebhook(jsonPayload, headers,
+                        base64WorkspaceId, vcs);
+                break;
+            case GITEA:
+                webhookResult = giteaWebhookService.processWebhook(jsonPayload, headers,
                         base64WorkspaceId, vcs);
                 break;
             case GITLAB:
@@ -328,6 +334,9 @@ public class WebhookService {
             case GITHUB:
                 webhookRemoteId = gitHubWebhookService.createOrUpdateWebhook(workspace, persistedWebhook);
                 break;
+            case GITEA:
+                webhookRemoteId = giteaWebhookService.createOrUpdateWebhook(workspace, persistedWebhook);
+                break;
             case GITLAB:
                 webhookRemoteId = gitLabWebhookService.createOrUpdateWebhook(workspace, persistedWebhook);
                 break;
@@ -367,6 +376,9 @@ public class WebhookService {
         switch (vcs.getVcsType()) {
             case GITHUB:
                 gitHubWebhookService.deleteWebhook(workspace, webhook.getRemoteHookId());
+                break;
+            case GITEA:
+                giteaWebhookService.deleteWebhook(workspace, webhook.getRemoteHookId());
                 break;
             case GITLAB:
                 gitLabWebhookService.deleteWebhook(workspace, webhook.getRemoteHookId());
@@ -426,6 +438,9 @@ public class WebhookService {
         switch (job.getWorkspace().getVcs().getVcsType()) {
             case GITHUB:
                 gitHubWebhookService.sendCommitStatus(job, JobStatus.pending, null);
+                break;
+            case GITEA:
+                giteaWebhookService.sendCommitStatus(job, JobStatus.pending, null);
                 break;
             case GITLAB:
                 gitLabWebhookService.sendCommitStatus(job, JobStatus.pending, null);

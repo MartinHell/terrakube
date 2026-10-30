@@ -884,7 +884,7 @@ public class ScheduleJob implements org.quartz.Job {
         try {
             String runSummary = prCommentService.extractRunSummary(job).orElse(null);
             switch (job.getWorkspace().getVcs().getVcsType()) {
-                case GITHUB:
+                case GITHUB, GITEA:
                     gitHubWebhookService.sendCommitStatus(job, jobStatus, runSummary);
                     break;
                 case GITLAB:

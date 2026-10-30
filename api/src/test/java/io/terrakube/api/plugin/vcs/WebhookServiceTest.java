@@ -96,6 +96,7 @@ public class WebhookServiceTest {
                 webhookRepository,
                 webhookEventRepository,
                 gitHubWebhookService,
+                null,
                 gitLabWebhookService,
                 bitBucketWebhookService,
                 azDevOpsWebhookService,
