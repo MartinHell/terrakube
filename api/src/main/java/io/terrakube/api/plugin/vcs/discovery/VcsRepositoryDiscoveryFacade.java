@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 
 import io.terrakube.api.plugin.vcs.discovery.azdevops.AzDevOpsRepositoryDiscoveryService;
 import io.terrakube.api.plugin.vcs.discovery.bitbucket.BitbucketRepositoryDiscoveryService;
+import io.terrakube.api.plugin.vcs.discovery.gitea.GiteaRepositoryDiscoveryService;
 import io.terrakube.api.plugin.vcs.discovery.github.GitHubRepositoryDiscoveryService;
 import io.terrakube.api.plugin.vcs.discovery.gitlab.GitLabRepositoryDiscoveryService;
 import io.terrakube.api.rs.vcs.Vcs;
@@ -17,15 +18,18 @@ public class VcsRepositoryDiscoveryFacade {
     private final GitLabRepositoryDiscoveryService gitLabService;
     private final BitbucketRepositoryDiscoveryService bitbucketService;
     private final AzDevOpsRepositoryDiscoveryService azDevOpsService;
+    private final GiteaRepositoryDiscoveryService giteaService;
 
     public VcsRepositoryDiscoveryFacade(GitHubRepositoryDiscoveryService gitHubService,
             GitLabRepositoryDiscoveryService gitLabService,
             BitbucketRepositoryDiscoveryService bitbucketService,
-            AzDevOpsRepositoryDiscoveryService azDevOpsService) {
+            AzDevOpsRepositoryDiscoveryService azDevOpsService,
+            GiteaRepositoryDiscoveryService giteaService) {
         this.gitHubService = gitHubService;
         this.gitLabService = gitLabService;
         this.bitbucketService = bitbucketService;
         this.azDevOpsService = azDevOpsService;
+        this.giteaService = giteaService;
     }
 
     public List<VcsGroupSummary> listGroups(Vcs vcs) {
@@ -46,6 +50,8 @@ public class VcsRepositoryDiscoveryFacade {
                 return bitbucketService;
             case AZURE_DEVOPS:
                 return azDevOpsService;
+            case GITEA:
+                return giteaService;
             default:
                 throw new VcsDiscoveryNotSupportedException("Repository discovery is not supported for this VCS connection type");
         }
