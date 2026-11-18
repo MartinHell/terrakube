@@ -2,6 +2,7 @@ package io.terrakube.api.plugin.vcs.discovery;
 
 import io.terrakube.api.plugin.vcs.discovery.azdevops.AzDevOpsRepositoryDiscoveryService;
 import io.terrakube.api.plugin.vcs.discovery.bitbucket.BitbucketRepositoryDiscoveryService;
+import io.terrakube.api.plugin.vcs.discovery.gitea.GiteaRepositoryDiscoveryService;
 import io.terrakube.api.plugin.vcs.discovery.github.GitHubRepositoryDiscoveryService;
 import io.terrakube.api.plugin.vcs.discovery.gitlab.GitLabRepositoryDiscoveryService;
 import io.terrakube.api.rs.vcs.Vcs;
@@ -24,6 +25,7 @@ class VcsRepositoryDiscoveryFacadeTest {
     GitLabRepositoryDiscoveryService gitLabService;
     BitbucketRepositoryDiscoveryService bitbucketService;
     AzDevOpsRepositoryDiscoveryService azDevOpsService;
+    GiteaRepositoryDiscoveryService giteaService;
     VcsRepositoryDiscoveryFacade subject;
 
     @BeforeEach
@@ -32,7 +34,9 @@ class VcsRepositoryDiscoveryFacadeTest {
         gitLabService = mock(GitLabRepositoryDiscoveryService.class);
         bitbucketService = mock(BitbucketRepositoryDiscoveryService.class);
         azDevOpsService = mock(AzDevOpsRepositoryDiscoveryService.class);
-        subject = new VcsRepositoryDiscoveryFacade(gitHubService, gitLabService, bitbucketService, azDevOpsService);
+        giteaService = mock(GiteaRepositoryDiscoveryService.class);
+        subject = new VcsRepositoryDiscoveryFacade(gitHubService, gitLabService, bitbucketService, azDevOpsService,
+                giteaService);
     }
 
     private Vcs vcs(VcsType type) {
@@ -75,6 +79,15 @@ class VcsRepositoryDiscoveryFacadeTest {
         subject.listGroups(vcs);
 
         verify(azDevOpsService).listGroups(vcs);
+    }
+
+    @Test
+    void dispatchesGiteaToGiteaProvider() {
+        Vcs vcs = vcs(VcsType.GITEA);
+
+        subject.listGroups(vcs);
+
+        verify(giteaService).listGroups(vcs);
     }
 
     @Test
