@@ -20,7 +20,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { IconContext } from "react-icons";
 import { BiBookBookmark, BiTerminal, BiUpload } from "react-icons/bi";
-import { SiBitbucket, SiGit } from "react-icons/si";
+import { SiBitbucket, SiGit, SiGitea } from "react-icons/si";
 import { VscAzureDevops } from "react-icons/vsc";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { v7 as uuid } from "uuid";
@@ -162,6 +162,15 @@ export const CreateWorkspace = () => {
   const bitBucketItems = [
     {
       label: <Link to={vcsLink(VcsTypeExtended.BITBUCKET)}>Bitbucket Cloud</Link>,
+      key: "1",
+    },
+  ];
+
+  const giteaItems = [
+    {
+      label: (
+        <Link to={vcsLink(VcsTypeExtended.GITEA, VcsConnectionType.STANDALONE)}>Gitea or Forgejo (access token)</Link>
+      ),
       key: "1",
     },
   ];
@@ -715,6 +724,11 @@ export const CreateWorkspace = () => {
                     <Space>
                       <VscAzureDevops /> Azure Devops <DownOutlined />
                     </Space>
+                  </Button>
+                </Dropdown>
+                <Dropdown menu={{ items: giteaItems }}>
+                  <Button size="large">
+                    <SiGitea /> &nbsp; Gitea <DownOutlined />
                   </Button>
                 </Dropdown>
               </Space>
